@@ -2,6 +2,9 @@ import express from 'express'
 import cors from 'cors';
 import { createServer } from "http";
 import { Server } from "socket.io";
+import createWorker from './createWorker.js';
+import mediasoupConfig from './config/mediasoupConfig.js';
+import createWebRtcTransportBothkinds from './createWebRtcTransportBothkinds.js';
 
 
 const app = express();
@@ -28,14 +31,47 @@ const io = new Server(httpServer, {
 });
 
 
-io.on('connection', (Socket) => {
-    console.log('socket id: ',Socket.id)
+let workers = null;
+let router = null;
+
+const initMediaSoup = async () => {
+    workers = await createWorker();
+    // console.log('workers: ', workers)
+
+    router = await workers[0].createRouter({ mediaCodecs: mediasoupConfig.routerMediaCodecs })
+
+}
+
+initMediaSoup();
+
+
+
+io.on('connection', (socket) => {
+    console.log('socket id: ', socket.id)
+
+    let thisClientProducerTransport = null;
+
+
+    socket.on('rtpCap', (ack) => {
+        ack(router.rtpCapabilities);
+    });
+
+
+    socket.on('create-producer-transport', async (ack) => {
+
+        const { transport, params } = await createWebRtcTransportBothkinds(router);
+
+        // console.log('params: ', params)
+        thisClientProducerTransport = transport;
+
+        ack(params) // what we send back to the client
+    })
 });
 
 
 
 httpServer.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+    console.log(`Server running on port ${port}`);
 });
 
 

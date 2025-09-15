@@ -2,6 +2,10 @@ import { io } from "socket.io-client";
 import * as mediasoupClient from "mediasoup-client";
 
 let socket = null;
+let device = null;
+let localStream = null;
+let producerTransport = null;
+
 
 export const initConnect = () => {
   socket = io('http://localhost:5000');
@@ -13,6 +17,78 @@ export const initConnect = () => {
 
   addSocketListener()
 };
+
+
+const deviceSetup = async () => {
+  try {
+
+    device = await mediasoupClient.Device.factory()
+
+    // console.log('device: ', device)
+
+    const routerRtpCapabilities = await socket.emitWithAck('rtpCap');
+    // console.log(routerRtpCapabilities)
+
+    await device.load({ routerRtpCapabilities })
+
+
+    deviceButton.disabled = true;
+    createProdButton.disabled = false;
+
+  } catch (error) {
+    if (error.name === 'UnsupportedError') {
+      console.warn('browser not supported');
+    } else {
+      console.error("Error creating Device:", err);
+    }
+  }
+};
+
+
+const createProducer = async () => {
+  try {
+
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: true
+    });
+
+    console.log(localStream)
+
+    localVideo.srcObject = localStream
+
+  } catch (error) {
+    console.log(error)
+  }
+
+  const data = await socket.emitWithAck('create-producer-transport')
+  console.log(data)
+
+  const { id, iceParameters, iceCandidates, dtlsParameters } = data;
+
+  const transport = device.createSendTransport({
+    id,
+    iceParameters,
+    iceCandidates,
+    dtlsParameters
+  });
+
+  producerTransport = transport;
+
+
+  // the transport connect event will not run until,
+  // call transport.produce();
+  producerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+    console.log('coonect producer transport fired')
+  });
+
+
+  // after completed the producer transport connect event, then this even will fired
+  producerTransport.on('produce', async (parameters, callback, errback) => {
+    console.log("Transport produce event has fired!");
+  })
+
+}
 
 
 
