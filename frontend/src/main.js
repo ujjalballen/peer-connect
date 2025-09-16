@@ -5,6 +5,7 @@ let socket = null;
 let device = null;
 let localStream = null;
 let producerTransport = null;
+let producer = null;
 
 
 export const initConnect = () => {
@@ -79,16 +80,91 @@ const createProducer = async () => {
   // the transport connect event will not run until,
   // call transport.produce();
   producerTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
-    console.log('coonect producer transport fired')
+    // console.log('coonect producer transport fired: ', dtlsParameters);
+
+    try {
+      const resp = await socket.emitWithAck('connect-producer', { dtlsParameters });
+
+      console.log(resp)
+
+      if (resp === 'success') {
+        callback()
+      } else if (resp === 'error') {
+        errback();
+      }
+
+    } catch (error) {
+      console.error("Transport connect error (client):", error);
+      errback()
+    }
   });
 
 
   // after completed the producer transport connect event, then this even will fired
   producerTransport.on('produce', async (parameters, callback, errback) => {
     console.log("Transport produce event has fired!");
+
+    try {
+      const { kind, rtpParameters } = parameters;
+
+      const resp = await socket.emitWithAck('start-producing', { kind, rtpParameters })
+      console.log(resp)
+
+      if (resp === 'error') {
+        errback();
+      } else {
+        callback({ id: resp })
+      }
+
+
+      publishButton.disabled = true;
+      createConsButton.disabled = false;
+
+    } catch (error) {
+      errback()
+    }
+
   })
 
+
+  createProdButton.disabled = true;
+  publishButton.disabled = false
+
+
+};
+
+
+const publish = async () => {
+  console.log('hello there')
+
+  const videoTrack = localStream.getVideoTracks()[0];
+  console.log(videoTrack)
+
+  producer = await producerTransport.produce({
+    track: videoTrack,
+    encodings:
+      [
+        { maxBitrate: 100000 },
+        { maxBitrate: 300000 },
+        { maxBitrate: 900000 }
+      ],
+    codecOptions:
+    {
+      videoGoogleStartBitrate: 1000
+    }
+
+  })
+};
+
+
+
+// consumer stuff;
+
+const createConsumer = () => {
+  console.log('consumer start from here')
 }
+
+
 
 
 

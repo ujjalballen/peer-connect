@@ -50,6 +50,7 @@ io.on('connection', (socket) => {
     console.log('socket id: ', socket.id)
 
     let thisClientProducerTransport = null;
+    let thisClientProducer = null;
 
 
     socket.on('rtpCap', (ack) => {
@@ -65,7 +66,49 @@ io.on('connection', (socket) => {
         thisClientProducerTransport = transport;
 
         ack(params) // what we send back to the client
+    });
+
+
+    socket.on('connect-producer', async (dtlsParameters, ack) => {
+        // console.log('dtlsParameters: ', dtlsParameters)
+
+        if (!thisClientProducerTransport) {
+            ack('error');
+            return;
+        };
+
+        try {
+
+            await thisClientProducerTransport.connect(dtlsParameters)
+            ack('success');
+
+        } catch (error) {
+            console.log(error);
+            ack('error');
+        }
+    });
+
+
+    socket.on('start-producing', async ({ kind, rtpParameters }, ack) => {
+
+        if (!thisClientProducerTransport) {
+            return ack('error');
+        }
+
+        try {
+
+            thisClientProducer = await thisClientProducerTransport.produce({ kind, rtpParameters });
+            ack(thisClientProducer.id);
+
+
+        } catch (error) {
+            ack('error')
+        }
     })
+
+
+
+
 });
 
 
