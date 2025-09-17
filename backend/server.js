@@ -1,123 +1,163 @@
-import express from 'express'
-import cors from 'cors';
+import express from "express";
+import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import createWorker from './createWorker.js';
-import mediasoupConfig from './config/mediasoupConfig.js';
-import createWebRtcTransportBothkinds from './createWebRtcTransportBothkinds.js';
-
+import createWorker from "./createWorker.js";
+import mediasoupConfig from "./config/mediasoupConfig.js";
+import createWebRtcTransportBothkinds from "./createWebRtcTransportBothkinds.js";
 
 const app = express();
 const port = process.env.PROT || 5000; // 3000
 
 app.use(express.json());
-app.use(cors({
-    origin: ['http://localhost:5173'],
-    methods: ['GET', 'POST', 'PUT'],
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    methods: ["GET", "POST", "PUT"],
     // credentials: true, // Allow cookies/auth
-
-}));
-
-
+  })
+);
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-    cors: {
-        origin: "http://localhost:5173", // or array of origins
-        methods: ["GET", "POST"],        // Allowed HTTP methods
-        // allowedHeaders: ["my-custom-header"], // Optional request headers
-        // credentials: true                // Allow cookies/auth
-    }
+  cors: {
+    origin: "http://localhost:5173", // or array of origins
+    methods: ["GET", "POST"], // Allowed HTTP methods
+    // allowedHeaders: ["my-custom-header"], // Optional request headers
+    // credentials: true                // Allow cookies/auth
+  },
 });
-
 
 let workers = null;
 let router = null;
 
 const initMediaSoup = async () => {
-    workers = await createWorker();
-    // console.log('workers: ', workers)
+  workers = await createWorker();
+  // console.log('workers: ', workers)
 
-    router = await workers[0].createRouter({ mediaCodecs: mediasoupConfig.routerMediaCodecs })
-
-}
+  router = await workers[0].createRouter({
+    mediaCodecs: mediasoupConfig.routerMediaCodecs,
+  });
+};
 
 initMediaSoup();
 
+io.on("connection", (socket) => {
+  console.log("socket id: ", socket.id);
 
+  let thisClientProducerTransport = null;
+  let thisClientProducer = null;
 
-io.on('connection', (socket) => {
-    console.log('socket id: ', socket.id)
+  let thisClientConsumerTransport = null;
+  let thisClientConsumer = null;
 
-    let thisClientProducerTransport = null;
-    let thisClientProducer = null;
+  socket.on("rtpCap", (ack) => {
+    ack(router.rtpCapabilities);
+  });
 
+  socket.on("create-producer-transport", async (ack) => {
+    const { transport, params } = await createWebRtcTransportBothkinds(router);
 
-    socket.on('rtpCap', (ack) => {
-        ack(router.rtpCapabilities);
-    });
+    // console.log('params: ', params)
+    thisClientProducerTransport = transport;
 
+    ack(params); // what we send back to the client
+  });
 
-    socket.on('create-producer-transport', async (ack) => {
+  socket.on("connect-producer", async (dtlsParameters, ack) => {
+    // console.log('dtlsParameters: ', dtlsParameters)
 
-        const { transport, params } = await createWebRtcTransportBothkinds(router);
+    if (!thisClientProducerTransport) {
+      ack("error");
+      return;
+    }
 
-        // console.log('params: ', params)
-        thisClientProducerTransport = transport;
+    try {
+      await thisClientProducerTransport.connect(dtlsParameters);
+      ack("success");
+    } catch (error) {
+      console.log(error);
+      ack("error");
+    }
+  });
 
-        ack(params) // what we send back to the client
-    });
+  socket.on("start-producing", async ({ kind, rtpParameters }, ack) => {
+    if (!thisClientProducerTransport) {
+      return ack("error");
+    }
 
+    try {
+      thisClientProducer = await thisClientProducerTransport.produce({
+        kind,
+        rtpParameters,
+      });
+      ack(thisClientProducer.id);
+    } catch (error) {
+      ack("error");
+    }
+  });
 
-    socket.on('connect-producer', async (dtlsParameters, ack) => {
-        // console.log('dtlsParameters: ', dtlsParameters)
+  // consumer stuff......
 
-        if (!thisClientProducerTransport) {
-            ack('error');
-            return;
-        };
+  socket.on("create-consumer-transport", async (ack) => {
+    const { transport, params } = await createWebRtcTransportBothkinds(router);
 
-        try {
+    thisClientConsumerTransport = transport;
 
-            await thisClientProducerTransport.connect(dtlsParameters)
-            ack('success');
+    ack(params);
+  });
 
-        } catch (error) {
-            console.log(error);
-            ack('error');
-        }
-    });
+  socket.on("connect-consumer-transport", async (dtlsParameters, ack) => {
+    try {
+      await thisClientConsumerTransport.connect(dtlsParameters);
+      ack("success");
+    } catch (error) {
+      ack("error");
+    }
+  });
 
+  socket.on("consume-media", async ({ rtpCapabilities }, ack) => {
+    // console.log(rtpCapabilities)
+    // we will set up our clientConsumer, and send back
+    // the params the client needs to do the same
+    // make sure there is a producer:) we can't consume without that one
 
-    socket.on('start-producing', async ({ kind, rtpParameters }, ack) => {
+    if (!thisClientProducer) {
+      ack("noProducer");
+    } else if (
+      !router.canConsume({
+        producerId: thisClientProducer?.id,
+        rtpCapabilities,
+      })
+    ) {
+      ack("canNotConsume");
+    } else {
+      // we can consume... there is a producer and client is able proceed!
 
-        if (!thisClientProducerTransport) {
-            return ack('error');
-        }
+      thisClientConsumer = await thisClientConsumerTransport.consume({
+        producerId: thisClientProducer?.id,
+        rtpCapabilities,
+        paused: true, // see docs, this is usuall the best way to start
+      });
 
-        try {
+      const consumerParams = {
+        producerId: thisClientProducer.id,
+        id: thisClientConsumer.id,
+        kind: thisClientConsumer.kind,
+        rtpParameters: thisClientConsumer.rtpParameters,
+      };
 
-            thisClientProducer = await thisClientProducerTransport.produce({ kind, rtpParameters });
-            ack(thisClientProducer.id);
+      ack(consumerParams);
+    }
+  });
 
+  socket.on("unpauseConsumer", async (ack) => {
+    await thisClientConsumer.resume();
+  });
 
-        } catch (error) {
-            ack('error')
-        }
-    })
-
-
-
-
+  
 });
-
-
 
 httpServer.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 });
-
-
-
-
-
