@@ -33,6 +33,7 @@ const deviceSetup = async () => {
 
     deviceButton.disabled = true;
     createProdButton.disabled = false;
+    createConsButton.disabled = false
   } catch (error) {
     if (error.name === "UnsupportedError") {
       console.warn("browser not supported");
@@ -164,6 +165,16 @@ const createConsumer = async () => {
 
   consumerTransport = transport;
 
+  consumerTransport.on("connectionstatechange", (connectionState) => {
+    console.log(".... Connection STATE CHANGE!...");
+    console.log(connectionState);
+  });
+
+  consumerTransport.on("icegatheringstatechange", (iceGatheringState) => {
+    console.log(".... ICE Gathering CHANGE!...");
+    console.log(iceGatheringState);
+  });
+
   consumerTransport.on(
     "connect",
     async ({ dtlsParameters }, callback, errback) => {
@@ -209,12 +220,30 @@ const consume = async () => {
     // // in the doc.. consumer.track; for get the track we can distructer
 
     const { track } = consumer;
+
+
+
+    track.addEventListener("ended", () => {
+      console.log("Track has ended");
+    });
+
+    track.onmute = (event) => {
+      console.log('Track has muted')
+    };
+
+
+    track.onunmute = (event) => {
+      console.log('Track has unmute')
+    };
+
+
+
     // //see MDN on MediaStream for a ton of info..
     remoteVideo.srcObject = new MediaStream([track]);
 
     console.log("track is ready.. we need unpause");
 
-    await socket.emitWithAck('unpauseConsumer')
+    await socket.emitWithAck("unpauseConsumer");
   }
 };
 

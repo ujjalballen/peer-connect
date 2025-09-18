@@ -31,6 +31,9 @@ const io = new Server(httpServer, {
 let workers = null;
 let router = null;
 
+// theProducer will be a global, and whoever produced last; not good at real world
+let theProducer = null;
+
 const initMediaSoup = async () => {
   workers = await createWorker();
   // console.log('workers: ', workers)
@@ -91,6 +94,9 @@ io.on("connection", (socket) => {
         kind,
         rtpParameters,
       });
+
+      theProducer = thisClientProducer;
+
       ack(thisClientProducer.id);
     } catch (error) {
       ack("error");
@@ -122,11 +128,13 @@ io.on("connection", (socket) => {
     // the params the client needs to do the same
     // make sure there is a producer:) we can't consume without that one
 
-    if (!thisClientProducer) {
+    //if (!thisClientProducer)
+
+    if (!theProducer) {
       ack("noProducer");
     } else if (
       !router.canConsume({
-        producerId: thisClientProducer?.id,
+        producerId: theProducer?.id, // thisClientProducer?.id,
         rtpCapabilities,
       })
     ) {
@@ -135,13 +143,13 @@ io.on("connection", (socket) => {
       // we can consume... there is a producer and client is able proceed!
 
       thisClientConsumer = await thisClientConsumerTransport.consume({
-        producerId: thisClientProducer?.id,
+        producerId: theProducer?.id, // thisClientProducer?.id,
         rtpCapabilities,
         paused: true, // see docs, this is usuall the best way to start
       });
 
       const consumerParams = {
-        producerId: thisClientProducer.id,
+        producerId: theProducer.id, // thisClientProducer?.id,
         id: thisClientConsumer.id,
         kind: thisClientConsumer.kind,
         rtpParameters: thisClientConsumer.rtpParameters,
