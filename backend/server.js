@@ -97,6 +97,10 @@ io.on("connection", (socket) => {
 
       theProducer = thisClientProducer;
 
+      thisClientProducer.on("transportclose", () => {
+        console.log("Producer closed because its transport closed");
+      });
+
       ack(thisClientProducer.id);
     } catch (error) {
       ack("error");
@@ -148,6 +152,10 @@ io.on("connection", (socket) => {
         paused: true, // see docs, this is usuall the best way to start
       });
 
+      thisClientConsumer.on("transportclose", () => {
+        console.log("consumer closed because its transport closed");
+      });
+
       const consumerParams = {
         producerId: theProducer.id, // thisClientProducer?.id,
         id: thisClientConsumer.id,
@@ -163,7 +171,19 @@ io.on("connection", (socket) => {
     await thisClientConsumer.resume();
   });
 
-  
+  socket.on("close-all", (ack) => {
+    // client has requested to close all;
+
+    try {
+      thisClientConsumerTransport?.close();
+      thisClientProducerTransport?.close();
+      console.log("it is closed");
+      ack("closed");
+    } catch (error) {
+      // this is not gonna be a client issue
+      ack("closeError");
+    }
+  });
 });
 
 httpServer.listen(port, () => {

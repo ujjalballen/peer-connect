@@ -1,7 +1,7 @@
 const mediasoupConfig = {
     workerSettings: {
-        rtcMinPort: 10000,
-        rtcMaxPort: 59999,
+        rtcMinPort: 40000,
+        rtcMaxPort: 41000,
         logLevel: "warn",
         logTags: [
             'info',

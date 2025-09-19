@@ -33,7 +33,9 @@ const deviceSetup = async () => {
 
     deviceButton.disabled = true;
     createProdButton.disabled = false;
-    createConsButton.disabled = false
+    createConsButton.disabled = false;
+    disconnectButton.disabled = false;
+
   } catch (error) {
     if (error.name === "UnsupportedError") {
       console.warn("browser not supported");
@@ -245,6 +247,26 @@ const consume = async () => {
 
     await socket.emitWithAck("unpauseConsumer");
   }
+};
+
+
+
+const disconnect = async() => {
+  console.log('hello disconnected...')
+
+// send message to the server and then close here
+const closedRes = await socket.emitWithAck('close-all');
+
+
+if(closedRes === 'closeError'){
+  console.log('sothing happend on the server...')
+};
+
+// it doesn't matter if the server didn't closed, we are closing in the client
+producerTransport?.close();
+consumerTransport?.close();
+
+
 };
 
 const addSocketListener = () => {
